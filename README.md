@@ -41,5 +41,9 @@ README.md
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
-
+```
 ### 2. Build the index
+
+```
+python -c "from app.embed_index import build_index; build_index(save=True)"
+```
