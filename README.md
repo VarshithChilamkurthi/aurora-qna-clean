@@ -80,3 +80,69 @@ Set your API key:
 ``` export OPENAI_API_KEY="sk-..." ```
 
 Restart the server and /ask will use the LLM to generate polished answers.
+
+
+## 📡 Deployment Instructions (Render)
+### 1. On Render.com
+
+- Click New → Web Service
+- Select your GitHub repo
+- Environment: Docker
+- (Optional) Add environment variables
+  - OPENAI_API_KEY=...
+  - MESSAGES_API=https://november7-730026606190.europe-west1.run.app/messages
+
+### 2. Deploy
+
+Render builds the Dockerfile and gives you a public URL like:
+
+``` https://your-app.onrender.com ```
+
+### 3. Test deployed endpoint
+``` curl "https://your-app.onrender.com/ask?q=When%20is%20Layla%20planning%20her%20trip%20to%20London%3F" ```
+
+## 📁 Data Source Note
+
+The provided public messages API returned HTTP 403 Forbidden during development.
+To ensure consistent evaluation, this repo includes a fallback messages.json.
+
+The service logic:
+- Try API
+- If API fails → use local messages.json
+- /reindex rebuilds index accordingly
+
+## 🧠 Design Notes
+
+- Embeddings: SentenceTransformers all-MiniLM-L6-v2
+
+- Vector store: FAISS (flat index)
+
+- Reasoning:
+
+  - Without OpenAI → rule-based extractor (dates, counts, restaurants)
+
+  - With OpenAI → full RAG prompt + LLM answer
+
+- Considered alternatives:
+
+  - PGVector / Pinecone / Weaviate
+
+  - Local LLM inference
+
+  - Extractive QA (e.g., RoBERTa-SQuAD)
+
+  - Agent-like orchestration (out of scope for this assignment)
+
+
+## 📝 Example Output
+```
+{
+  "answer": "June 12 (interpreted as 2025-06-12) — found in member messages."
+}
+```
+
+## 📎 Extras
+
+To test locally:
+
+``` ./examples.sh ```
