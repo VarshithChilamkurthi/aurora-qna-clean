@@ -17,8 +17,6 @@ The system works both **offline** (using a local `messages.json`) and **online**
 - Local fallback dataset `messages.json` for reliability  
 - Dockerized for easy deployment and reproducibility  
 
----
-
 ## 📦 Project Structure
 ```
 app/
@@ -31,8 +29,6 @@ requirements.txt
 Dockerfile
 README.md
 ```
-
----
 
 ## 🧪 Running Locally
 
@@ -61,8 +57,6 @@ curl "http://127.0.0.1:8000/ask?q=How%20many%20cars%20does%20Vikram%20Desai%20ha
 curl 'http://127.0.0.1:8000/ask?q=What%20are%20Amira%27s%20favorite%20restaurants%3F'
 ```
 
----
-
 ## 🔧 Rebuilding the Index
 
 Reindex from the API or local file:
@@ -80,8 +74,6 @@ Set your API key:
 ``` export OPENAI_API_KEY="sk-..." ```
 
 Restart the server and /ask will use the LLM to generate polished answers.
-
----
 
 ## 📡 Deployment Instructions (Render)
 
@@ -103,8 +95,6 @@ Render builds the Dockerfile and gives you a public URL like:
 ### 3. Test deployed endpoint
 ``` curl "https://your-app.onrender.com/ask?q=When%20is%20Layla%20planning%20her%20trip%20to%20London%3F" ```
 
----
-
 ## 📁 Data Source Note
 
 The provided public messages API returned HTTP 403 Forbidden during development.
@@ -114,8 +104,6 @@ The service logic:
 - Try API
 - If API fails → use local messages.json
 - /reindex rebuilds index accordingly
-
----
 
 ## 🧠 Design Notes
 
@@ -136,8 +124,6 @@ The service logic:
   "answer": "June 12 (interpreted as 2025-06-12) — found in member messages."
 }
 ```
-
----
 
 ## 📎 Extras
 
