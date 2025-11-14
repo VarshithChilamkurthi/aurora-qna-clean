@@ -1,0 +1,12 @@
+venv/
+__pycache__/
+*.pyc
+.env
+.env.*
+faiss_index.idx
+metadata.json
+*.sqlite
+*.db
+.DS_Store
+.idea/
+.vscode/

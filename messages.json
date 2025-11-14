@@ -1,0 +1,37 @@
+[
+  {
+    "member_name": "Layla",
+    "text": "Planning a trip to London from June 12 to June 15. Booked flight and hotel today.",
+    "timestamp": "2025-05-02T10:15:00"
+  },
+  {
+    "member_name": "Vikram Desai",
+    "text": "Yes, I sold one of my cars. I still have a Tesla Model 3 and a Range Rover.",
+    "timestamp": "2025-03-10T09:00:00"
+  },
+  {
+    "member_name": "Amira",
+    "text": "My favorite restaurants: Chez Pierre, Saffron Lounge, and Onda Marina.",
+    "timestamp": "2024-11-20T18:45:00"
+  },
+  {
+    "member_name": "Layla",
+    "text": "Added a note: need a London SIM card and a driver for the 13th.",
+    "timestamp": "2025-05-03T08:00:00"
+  },
+  {
+    "member_name": "Vikram Desai",
+    "text": "Bought a Tesla Model 3 last year; gifting the old Honda to a friend.",
+    "timestamp": "2023-07-01T12:00:00"
+  },
+  {
+    "member_name": "Amira",
+    "text": "Booked a table at Saffron Lounge for Friday. Loved the tasting menu there.",
+    "timestamp": "2025-06-01T14:30:00"
+  },
+  {
+    "member_name": "Unknown Member",
+    "text": "Test message that is a plain string in some APIs.",
+    "timestamp": "2024-01-01T00:00:00"
+  }
+]
