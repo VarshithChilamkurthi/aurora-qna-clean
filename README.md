@@ -20,6 +20,7 @@ The system works both **offline** (using a local `messages.json`) and **online**
 ---
 
 ## 📦 Project Structure
+```
 app/
 ├─ main.py
 ├─ embed_index.py
@@ -29,7 +30,7 @@ messages.json
 requirements.txt
 Dockerfile
 README.md
-
+```
 
 ---
 
@@ -47,3 +48,35 @@ pip install -r requirements.txt
 ```
 python -c "from app.embed_index import build_index; build_index(save=True)"
 ```
+
+### 3. Start the server
+```uvicorn app.main:app --reload --host 0.0.0.0 --port 8000```
+
+### 4. Test example questions
+```
+curl "http://127.0.0.1:8000/ask?q=When%20is%20Layla%20planning%20her%20trip%20to%20London%3F"
+
+curl "http://127.0.0.1:8000/ask?q=How%20many%20cars%20does%20Vikram%20Desai%20have%3F"
+
+curl 'http://127.0.0.1:8000/ask?q=What%20are%20Amira%27s%20favorite%20restaurants%3F'
+```
+
+
+## 🔧 Rebuilding the Index
+
+Reindex from the API or local file:
+
+``` curl -X POST "http://127.0.0.1:8000/reindex" ```
+
+
+Or:
+
+``` python -c "from app.embed_index import build_index; build_index(save=True)" ```
+
+## 🤖 Optional: Using OpenAI for Generated Answers
+
+Set your API key:
+
+``` export OPENAI_API_KEY="sk-..." ```
+
+Restart the server and /ask will use the LLM to generate polished answers.
