@@ -1,32 +1,50 @@
 import os
-import openai
-from app.config import OPENAI_API_KEY, OPENAI_MODEL, TOP_K
+import json
+from typing import List, Dict
 
-if OPENAI_API_KEY:
-    openai.api_key = OPENAI_API_KEY
-
-def build_prompt(question: str, top_docs: list):
-    ctx = "\n\n---\n\n".join([f"Member: {d['member']}\nTimestamp: {d.get('timestamp','')}\nMessage: {d['text']}" for d in top_docs])
-    prompt = f"""
-You are an assistant that answers questions about member data. Use only the information in the provided context. If the answer is not in the context, say "I don't see that information in the data."
-
-Context:
-{ctx}
-
-Question: {question}
-
-Provide a concise answer (one or two sentences). If multiple members are referenced, be explicit about which member. If asked for a count, return just the number and a short note on how you inferred it.
-"""
-    return prompt.strip()
-
-def call_openai(prompt: str, model: str = OPENAI_MODEL, max_tokens=256):
-    if not OPENAI_API_KEY:
-        raise RuntimeError("OPENAI_API_KEY not configured.")
-    resp = openai.ChatCompletion.create(
-        model=model,
-        messages=[{"role": "system", "content": "You are a helpful assistant."},
-                  {"role": "user", "content": prompt}],
-        max_tokens=max_tokens,
-        temperature=0.0,
+def build_prompt(question: str, top_docs: List[Dict]) -> str:
+    """
+    Build a simple RAG-style prompt consisting of the question and top context.
+    """
+    context = "\n\n".join([f\"- [{d.get('member','unknown')}] {d.get('text','')}\" for d in top_docs])
+    prompt = (
+        "You are an assistant that answers questions about members using only the provided context.\n\n"
+        f"Context:\n{context}\n\n"
+        f"Question: {question}\n\n"
+        "Answer briefly and only using the context above. If the answer is not present, say you don't know."
     )
-    return resp['choices'][0]['message']['content'].strip()
+    return prompt
+
+def call_openai(prompt: str) -> str:
+    """
+    Call OpenAI ChatCompletion in a lazy way (import inside function).
+    If openai package or API key is missing, raise a clear error.
+    """
+    try:
+        import openai
+    except Exception as e:
+        raise RuntimeError("OpenAI SDK is not installed in this environment. Install the 'openai' package or run without OpenAI enabled.") from e
+
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY is not set in the environment. Set the key to enable LLM answers.")
+
+    openai.api_key = api_key
+
+    # Use a concise ChatCompletion request
+    try:
+        response = openai.ChatCompletion.create(
+            model=os.getenv("OPENAI_MODEL", "gpt-3.5-turbo"),
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant that answers questions from provided context."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=256,
+            temperature=0.0,
+            n=1,
+        )
+        # extract text
+        content = response["choices"][0]["message"]["content"].strip()
+        return content
+    except Exception as e:
+        raise RuntimeError(f"OpenAI API call failed: {e}") from e
