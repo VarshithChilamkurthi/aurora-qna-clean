@@ -7,7 +7,7 @@ from app.model_utils import build_prompt, call_openai
 import re
 from collections import Counter
 
-app = FastAPI(title="Aurora Member QnA (lightweight retriever)")
+app = FastAPI(title="Aurora Member QnA (improved retriever)")
 
 # load docs (index unused here)
 index, docs = load_index()
@@ -18,22 +18,67 @@ class AnswerResponse(BaseModel):
 def _tokenize(text):
     return re.findall(r"[a-z0-9]+", text.lower())
 
+def _member_tokens(member_name):
+    if not member_name:
+        return []
+    return [t for t in re.findall(r"[a-z0-9]+", str(member_name).lower())]
+
 def semantic_search(keyword_query: str, k=TOP_K):
-    q_tokens = _tokenize(keyword_query)
+    """
+    Improved lightweight retriever:
+    - base overlap score
+    - +large boost if query contains member name tokens and doc.member matches
+    - +bonus for exact phrase match of query substring in doc text
+    """
+    q = keyword_query or ""
+    q_lower = q.lower()
+    q_tokens = _tokenize(q)
     q_counts = Counter(q_tokens)
+
     scores = []
     for i, d in enumerate(docs):
         text = d.get("text", "") or ""
+        member = (d.get("member") or d.get("member_name") or "").strip()
+        member_lower = member.lower()
+
         tokens = _tokenize(text)
+
+        # base overlap score (token frequency match)
         score = sum(q_counts[t] * tokens.count(t) for t in q_counts)
-        member = (d.get("member") or d.get("member_name") or "").lower()
-        for t in q_tokens:
-            if t in member:
-                score += 1
+
+        # boost if any query token appears in member name
+        member_toks = _member_tokens(member)
+        name_overlap = sum(1 for t in q_tokens if t in member_toks)
+        if name_overlap:
+            score += 150  # strong boost for member match
+
+        # additionally, if the full member name (or last name) appears in the query as substring
+        if member and member_lower in q_lower:
+            score += 200
+
+        # exact phrase match bonus (if query substring appears in text)
+        if len(q.strip()) > 3 and q_lower in text.lower():
+            score += 120
+
+        # small recency boost (if timestamp present, prefer newer)
+        ts = d.get("timestamp") or ""
+        if isinstance(ts, str) and len(ts) >= 4:
+            # crude: more recent year -> small bonus
+            m = re.search(r'(\d{4})', ts)
+            if m:
+                try:
+                    year = int(m.group(1))
+                    score += max(0, year - 2000)
+                except:
+                    pass
+
         scores.append((score, i))
+
+    # sort and return top-k
     scores.sort(key=lambda x: x[0], reverse=True)
     top_idxs = [idx for score, idx in scores[:k] if score > 0]
     if not top_idxs:
+        # fallback to first k docs if nothing matched
         top_idxs = list(range(min(k, len(docs))))
     return [docs[i] for i in top_idxs]
 
@@ -48,12 +93,11 @@ def _top_text(top_docs):
     return "\n\n".join(lines)
 
 def simple_answer(question: str, top_docs: list) -> str:
-    q = question.lower()
+    q = (question or "").lower()
     all_text = " \n ".join(d.get("text","") for d in top_docs).strip()
 
     # Trip / date heuristics
     if any(word in q for word in ["when", "trip", "travel", "planning"]):
-        # common month-day (e.g., June 12) or iso date (2025-06-12)
         m = re.search(r'([A-Za-z]+ \d{1,2}(?:,? \d{4})?)', all_text)
         if m:
             return f"{m.group(1)} (interpreted) - found in member messages."
@@ -77,7 +121,6 @@ def simple_answer(question: str, top_docs: list) -> str:
 
     # Restaurants heuristics
     if any(word in q for word in ['favorite restaurant','favorite restaurants','restaurants']):
-        # explicit pattern like: "My favorite restaurants: A, B and C"
         m = re.search(r"favorite restaurants?:\s*([A-Za-z0-9 ,'\-&]+)", all_text, flags=re.IGNORECASE)
         if m:
             parts = re.split(r',| and | & ', m.group(1))
@@ -88,10 +131,10 @@ def simple_answer(question: str, top_docs: list) -> str:
             return "Couldn't find explicit favorites. Top matching messages:\n\n" + _top_text(top_docs)
         return "No favorite restaurants found."
 
-    # Default fallback: return top docs
+    # Default
     if all_text:
         return "Top matching messages:\n\n" + _top_text(top_docs)
-    return "I don't see information relevant to your question in the data."
+    return "I don't see relevant information."
 
 @app.get("/ask", response_model=AnswerResponse)
 def ask(q: str = Query(..., description="Natural language question about member data")):
