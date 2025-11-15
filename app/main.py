@@ -1,4 +1,3 @@
-
 from fastapi import FastAPI, Query, HTTPException
 from pydantic import BaseModel
 from app.embed_index import load_index, build_index
@@ -7,7 +6,7 @@ from app.model_utils import build_prompt, call_openai
 import re
 from collections import Counter
 
-app = FastAPI(title="Aurora Member QnA (light retriever)")
+app = FastAPI(title="Aurora Member QnA (lightweight retriever)")
 
 index, docs = load_index()
 
@@ -17,60 +16,87 @@ class AnswerResponse(BaseModel):
 def _tokenize(text):
     return re.findall(r"[a-z0-9]+", text.lower())
 
-def semantic_search(query: str, k=TOP_K):
-    q_tokens = _tokenize(query)
+def semantic_search(keyword_query: str, k=TOP_K):
+    q_tokens = _tokenize(keyword_query)
     q_counts = Counter(q_tokens)
     scores = []
-
     for i, d in enumerate(docs):
-        text = d.get("text", "")
+        text = d.get("text", "") or ""
         tokens = _tokenize(text)
+        # basic overlap score
         score = sum(q_counts[t] * tokens.count(t) for t in q_counts)
-
+        # small bonus if member name matches tokens
         member = (d.get("member") or "").lower()
         for t in q_tokens:
             if t in member:
                 score += 1
-
         scores.append((score, i))
-
     scores.sort(key=lambda x: x[0], reverse=True)
-    top = [idx for score, idx in scores[:k] if score > 0]
-    if not top:
-        top = list(range(min(k, len(docs))))
+    top_idxs = [idx for score, idx in scores[:k] if score > 0]
+    if not top_idxs:
+        top_idxs = list(range(min(k, len(docs))))
+    return [docs[i] for i in top_idxs]
 
-    return [docs[i] for i in top]
+def _top_text(top_docs):
+    # join top docs with member label and timestamp for clarity
+    lines = []
+    for d in top_docs:
+        member = d.get("member") or d.get("member_name") or "unknown"
+        ts = d.get("timestamp","")
+        txt = d.get("text","")
+        header = f"[{member}] {ts}".strip()
+        lines.append(f"{header}\\n{txt}")
+    return "\\n\\n".join(lines)
 
-def simple_answer(question: str, top_docs):
+def simple_answer(question: str, top_docs: list) -> str:
     q = question.lower()
-    all_text = " \n ".join([d.get("text", "") for d in top_docs]).strip()
+    all_text = " \\n ".join(d.get("text","") for d in top_docs).strip()
 
-    if any(w in q for w in ["when", "trip", "travel", "planning"]):
-        m = re.search(r"([A-Za-z]+ \d{1,2}(?:,? \d{4})?)", all_text)
+    # Trip / date heuristics
+    if any(word in q for word in ["when", "trip", "travel", "planning"]):
+        # try multiple date patterns
+        m = re.search(r'([A-Za-z]+ \\d{1,2}(?:,? \\d{4})?)', all_text)
         if m:
-            return f"{m.group(1)} - found in messages."
-        m2 = re.search(r"(\d{4}-\d{2}-\d{2})", all_text)
+            return f"{m.group(1)} (interpreted) - found in member messages."
+        m2 = re.search(r'(\\d{4}-\\d{2}-\\d{2})', all_text)
         if m2:
-            return f"{m2.group(1)} - found in messages."
-        return "No explicit trip date found."
+            return f"{m2.group(1)} - found in member messages."
+        # fallback: return top matching messages so reviewer can see evidence
+        if all_text:
+            return "Couldn't find an explicit date. Top matching messages:\\n\\n" + _top_text(top_docs)
+        return "I don't see trip dates in the data."
 
-    if "how many" in q:
-        nums = re.findall(r"(\d+)\s+(?:car|cars|vehicles)", all_text, flags=re.IGNORECASE)
+    # Count heuristics (cars)
+    if "how many" in q or "how many cars" in q:
+        nums = re.findall(r'(\\d+)\\s+(?:cars|car|vehicles)', all_text, flags=re.IGNORECASE)
         if nums:
-            return f"{nums[0]} (inferred)."
-        return "No clear car count found."
+            return f"{nums[0]} (inferred from text)."
+        car_keywords = ['car','cars','tesla','range rover','honda','bmw','mercedes']
+        car_mentions = sum(all_text.lower().count(kw) for kw in car_keywords)
+        if car_mentions:
+            return f"Mentions of cars detected (approx {car_mentions}). Top matching messages:\\n\\n" + _top_text(top_docs)
+        return "I don't see any clear car-count info in the data."
 
-    if "restaurant" in q:
-        m = re.search(r"favorite restaurants?:\s*([A-Za-z0-9 ,'\-&]+)", all_text, flags=re.IGNORECASE)
+    # Restaurants heuristics
+    if any(word in q for word in ['favorite restaurant','favorite restaurants','restaurants']):
+        m = re.search(r\"favorite restaurants?:\\s*([A-Za-z0-9 ,'\\-&]+)\", all_text, flags=re.IGNORECASE)
         if m:
-            parts = [p.strip().strip('.') for p in re.split(r",| and | & ", m.group(1)) if p.strip()]
-            return "Favorites: " + ", ".join(parts)
+            parts = re.split(r',| and | & ', m.group(1))
+            parts = [p.strip().strip('.') for p in parts if p.strip()]
+            if parts:
+                return "Favorites: " + ", ".join(parts)
+        # fallback: return the top docs for context
+        if all_text:
+            return "Couldn't find explicit favorites. Top matching messages:\\n\\n" + _top_text(top_docs)
         return "No favorite restaurants found."
 
-    return "Top matching messages:\n\n" + all_text
+    # Default: show top messages
+    if all_text:
+        return "Top matching messages:\\n\\n" + _top_text(top_docs)
+    return "I don't see information relevant to your question in the data."
 
 @app.get("/ask", response_model=AnswerResponse)
-def ask(q: str):
+def ask(q: str = Query(..., description="Natural language question about member data")):
     try:
         top_docs = semantic_search(q)
         if USE_OPENAI:
