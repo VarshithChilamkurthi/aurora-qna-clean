@@ -48,27 +48,30 @@ def simple_answer(question: str, top_docs: list) -> str:
         if m2:
             return f"{m2.group(1)} - found in member messages."
         if all_text:
-            return "I couldn't find an explicit date, but here are the top matching messages:\\n\\n" + all_text
+            return "I couldn't find an explicit date, but here are the top matching messages:\n\n" + all_text
         return "I don't see trip dates in the data."
 
     # Count heuristics
     if "how many" in q:
-        nums = re.findall(r'(\\d+)\\s+(?:cars|car|vehicles)', all_text, flags=re.IGNORECASE)
+        nums = re.findall(r'(\d+)\s+(?:cars|car|vehicles)', all_text, flags=re.IGNORECASE)
         if nums:
             return f"{nums[0]} (inferred from text)."
         car_keywords = ['car','cars','tesla','range rover','honda','bmw','mercedes']
         car_mentions = sum(all_text.lower().count(kw) for kw in car_keywords)
         if car_mentions:
-            return f"Mentions of cars detected (approx {car_mentions}). Context:\\n\\n{all_text}"
+            return f"Mentions of cars detected (approx {car_mentions}). Context:\n\n{all_text}"
         return "No clear car-count found."
 
     # Restaurants heuristics
     if "restaurant" in q:
-        m = re.search(r'favorite restaurants?:\\s*([A-Za-z0-9 ,\\'\\-&]+)', all_text, flags=re.IGNORECASE)
+        # find explicit 'favorite restaurants: A, B and C'
+        m = re.search(r"favorite restaurants?:\s*([A-Za-z0-9 ,'\-&]+)", all_text, flags=re.IGNORECASE)
         if m:
             parts = re.split(r',| and | & ', m.group(1))
             parts = [p.strip().strip('.') for p in parts if p.strip()]
-            return "Favorites: " + ", ".join(parts)
+            if parts:
+                return "Favorites: " + ", ".join(parts)
+        # fallback: look for capitalized name-like tokens
         candidates = re.findall(r'([A-Z][a-z]+(?: [A-Z][a-z]+)*)', all_text)
         if candidates:
             seen = []
@@ -80,7 +83,7 @@ def simple_answer(question: str, top_docs: list) -> str:
 
     # Default
     if all_text:
-        return "Top matching messages:\\n\\n" + all_text
+        return "Top matching messages:\n\n" + all_text
     return "I don't see relevant information."
 
 @app.get("/ask", response_model=AnswerResponse)
