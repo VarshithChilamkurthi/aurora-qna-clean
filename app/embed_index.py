@@ -20,25 +20,17 @@ def _unwrap_possible_wrapper(data):
 def _possible_message_paths():
     # Candidate locations to look for messages.json
     paths = []
-    # explicit env override
     envp = os.getenv("MESSAGES_PATH")
     if envp:
         paths.append(Path(envp))
-    # repo root (where Docker copies source)
     paths.append(Path("messages.json"))
-    # common container app path
     paths.append(Path("/app/messages.json"))
-    # relative to this file (two levels up typically project root)
     here = Path(__file__).resolve()
     repo_root = here.parents[2] if len(here.parents) >= 3 else here.parent
     paths.append(repo_root / "messages.json")
-    # also try current working dir
     paths.append(Path.cwd() / "messages.json")
-    # deduplicate and yield existing ones
     seen = set()
     for p in paths:
-        if p is None:
-            continue
         try:
             pstr = str(p.resolve())
         except Exception:
@@ -56,7 +48,6 @@ def _load_local_messages():
                     data = json.load(f)
                 return _unwrap_possible_wrapper(data)
             except Exception:
-                # try next path
                 continue
     return None
 
@@ -78,30 +69,78 @@ def fetch_messages():
     except Exception:
         pass
 
-    # 3) Nothing found — return empty list (do NOT raise) so the app can start.
+    # 3) Nothing found — return empty list (do NOT raise)
     return []
 
+def _extract_text_from_msg(m):
+    # m is a dict or other value
+    if not isinstance(m, dict):
+        return str(m)
+    # common text fields
+    for k in ("text", "message", "body", "content", "msg", "message_text"):
+        v = m.get(k)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    # fallback: if 'raw' nested object contains message
+    raw = m.get("raw") or m.get("data") or m.get("payload")
+    if isinstance(raw, dict):
+        for k in ("text","message","body","content"):
+            v = raw.get(k)
+            if isinstance(v, str) and v.strip():
+                return v.strip()
+        # sometimes message is in 'raw' under 'message' string
+        v = raw.get("message") or raw.get("msg")
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    # last resort, stringify the dict
+    return json.dumps(m, ensure_ascii=False)
+
+def _extract_member_from_msg(m):
+    if not isinstance(m, dict):
+        return "unknown"
+    for k in ("member_name","member","author","user_name","user","username","userName","client_name"):
+        v = m.get(k)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    # nested raw object
+    raw = m.get("raw") or m.get("data") or m.get("payload")
+    if isinstance(raw, dict):
+        for k in ("member_name","member","author","user_name","user","username","userName"):
+            v = raw.get(k)
+            if isinstance(v, str) and v.strip():
+                return v.strip()
+        # some APIs use 'user_name' under top keys of raw
+        v = raw.get("user_name") or raw.get("user")
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    return "unknown"
+
+def _extract_timestamp_from_msg(m):
+    if not isinstance(m, dict):
+        return ""
+    for k in ("timestamp","time","created_at","date"):
+        v = m.get(k)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    raw = m.get("raw") or m.get("data") or m.get("payload")
+    if isinstance(raw, dict):
+        for k in ("timestamp","time","created_at","date"):
+            v = raw.get(k)
+            if isinstance(v, str) and v.strip():
+                return v.strip()
+    return ""
+
 def build_index(save=True):
-    """
-    Normalizes messages into a simple metadata list and writes METADATA_PATH if requested.
-    Returns (None, docs) to preserve previous API shape where first value was an index object.
-    """
     msgs = fetch_messages()
     if not isinstance(msgs, (list, tuple)):
         msgs = []
 
     docs = []
     for i, m in enumerate(msgs):
-        if isinstance(m, dict):
-            text = m.get("text") or m.get("message") or json.dumps(m)
-            member = m.get("member_name") or m.get("member") or m.get("author") or "unknown"
-            ts = m.get("timestamp") or m.get("date") or ""
-            raw = m
-        else:
-            text = str(m)
-            member = "unknown"
-            ts = ""
-            raw = m
+        text = _extract_text_from_msg(m)
+        member = _extract_member_from_msg(m)
+        ts = _extract_timestamp_from_msg(m)
+        raw = m
         docs.append({"id": str(i), "member": member, "text": text, "timestamp": ts, "raw": raw})
 
     if save:
@@ -110,17 +149,12 @@ def build_index(save=True):
             p.parent.mkdir(parents=True, exist_ok=True)
             with p.open("w", encoding="utf-8") as f:
                 json.dump(docs, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            # If writing metadata fails, silently continue — indexing can be retried via /reindex
+        except Exception:
             pass
 
     return None, docs
 
 def load_index():
-    """
-    Loads metadata.json if present, otherwise calls build_index(save=True) to create it.
-    Always returns (None, docs).
-    """
     p = Path(METADATA_PATH)
     if p.exists():
         try:
@@ -130,6 +164,4 @@ def load_index():
                 return None, docs
         except Exception:
             pass
-
-    # fallback: try to build from fetch_messages (this will not raise)
     return build_index(save=True)
