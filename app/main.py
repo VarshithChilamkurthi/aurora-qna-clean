@@ -1,3 +1,4 @@
+
 from fastapi import FastAPI, Query, HTTPException
 from pydantic import BaseModel
 from app.embed_index import load_index, build_index
@@ -8,6 +9,7 @@ from collections import Counter
 
 app = FastAPI(title="Aurora Member QnA (lightweight retriever)")
 
+# load docs (index unused here)
 index, docs = load_index()
 
 class AnswerResponse(BaseModel):
@@ -23,10 +25,8 @@ def semantic_search(keyword_query: str, k=TOP_K):
     for i, d in enumerate(docs):
         text = d.get("text", "") or ""
         tokens = _tokenize(text)
-        # basic overlap score
         score = sum(q_counts[t] * tokens.count(t) for t in q_counts)
-        # small bonus if member name matches tokens
-        member = (d.get("member") or "").lower()
+        member = (d.get("member") or d.get("member_name") or "").lower()
         for t in q_tokens:
             if t in member:
                 score += 1
@@ -38,61 +38,59 @@ def semantic_search(keyword_query: str, k=TOP_K):
     return [docs[i] for i in top_idxs]
 
 def _top_text(top_docs):
-    # join top docs with member label and timestamp for clarity
     lines = []
     for d in top_docs:
         member = d.get("member") or d.get("member_name") or "unknown"
         ts = d.get("timestamp","")
         txt = d.get("text","")
         header = f"[{member}] {ts}".strip()
-        lines.append(f"{header}\\n{txt}")
-    return "\\n\\n".join(lines)
+        lines.append(f"{header}\n{txt}")
+    return "\n\n".join(lines)
 
 def simple_answer(question: str, top_docs: list) -> str:
     q = question.lower()
-    all_text = " \\n ".join(d.get("text","") for d in top_docs).strip()
+    all_text = " \n ".join(d.get("text","") for d in top_docs).strip()
 
     # Trip / date heuristics
     if any(word in q for word in ["when", "trip", "travel", "planning"]):
-        # try multiple date patterns
-        m = re.search(r'([A-Za-z]+ \\d{1,2}(?:,? \\d{4})?)', all_text)
+        # common month-day (e.g., June 12) or iso date (2025-06-12)
+        m = re.search(r'([A-Za-z]+ \d{1,2}(?:,? \d{4})?)', all_text)
         if m:
             return f"{m.group(1)} (interpreted) - found in member messages."
-        m2 = re.search(r'(\\d{4}-\\d{2}-\\d{2})', all_text)
+        m2 = re.search(r'(\d{4}-\d{2}-\d{2})', all_text)
         if m2:
             return f"{m2.group(1)} - found in member messages."
-        # fallback: return top matching messages so reviewer can see evidence
         if all_text:
-            return "Couldn't find an explicit date. Top matching messages:\\n\\n" + _top_text(top_docs)
+            return "Couldn't find an explicit date. Top matching messages:\n\n" + _top_text(top_docs)
         return "I don't see trip dates in the data."
 
     # Count heuristics (cars)
     if "how many" in q or "how many cars" in q:
-        nums = re.findall(r'(\\d+)\\s+(?:cars|car|vehicles)', all_text, flags=re.IGNORECASE)
+        nums = re.findall(r'(\d+)\s+(?:cars|car|vehicles)', all_text, flags=re.IGNORECASE)
         if nums:
             return f"{nums[0]} (inferred from text)."
         car_keywords = ['car','cars','tesla','range rover','honda','bmw','mercedes']
         car_mentions = sum(all_text.lower().count(kw) for kw in car_keywords)
         if car_mentions:
-            return f"Mentions of cars detected (approx {car_mentions}). Top matching messages:\\n\\n" + _top_text(top_docs)
+            return f"Mentions of cars detected (approx {car_mentions}). Top matching messages:\n\n" + _top_text(top_docs)
         return "I don't see any clear car-count info in the data."
 
     # Restaurants heuristics
     if any(word in q for word in ['favorite restaurant','favorite restaurants','restaurants']):
-        m = re.search(r\"favorite restaurants?:\\s*([A-Za-z0-9 ,'\\-&]+)\", all_text, flags=re.IGNORECASE)
+        # explicit pattern like: "My favorite restaurants: A, B and C"
+        m = re.search(r"favorite restaurants?:\s*([A-Za-z0-9 ,'\-&]+)", all_text, flags=re.IGNORECASE)
         if m:
             parts = re.split(r',| and | & ', m.group(1))
             parts = [p.strip().strip('.') for p in parts if p.strip()]
             if parts:
                 return "Favorites: " + ", ".join(parts)
-        # fallback: return the top docs for context
         if all_text:
-            return "Couldn't find explicit favorites. Top matching messages:\\n\\n" + _top_text(top_docs)
+            return "Couldn't find explicit favorites. Top matching messages:\n\n" + _top_text(top_docs)
         return "No favorite restaurants found."
 
-    # Default: show top messages
+    # Default fallback: return top docs
     if all_text:
-        return "Top matching messages:\\n\\n" + _top_text(top_docs)
+        return "Top matching messages:\n\n" + _top_text(top_docs)
     return "I don't see information relevant to your question in the data."
 
 @app.get("/ask", response_model=AnswerResponse)
