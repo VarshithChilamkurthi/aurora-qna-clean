@@ -1,7 +1,5 @@
 fastapi
 uvicorn[standard]
 requests
-sentence-transformers
-faiss-cpu
-openai
 pydantic
+python-dateutil
